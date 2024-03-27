@@ -18,11 +18,18 @@ const WSS_URLS = [
 // Replace with the URL of your Next.js Netlify function
 const NETLIFY_FUNCTION_URL = 'https://your-netlify-site.netlify.app/api/handle-balance-change';
 
-async function main() {
-  const providers = WSS_URLS.map(url => new WsProvider(url));
-  const apis = await Promise.all(providers.map(provider => ApiPromise.create({ provider })));
+// Interval to reconnect to providers (in milliseconds)
+const RECONNECT_INTERVAL = 600000; // 10 minutes
 
-  const previousBalances = await Promise.all(
+let apis = [];
+let previousBalances = [];
+let subscriptions = [];
+
+async function connectProviders() {
+  const providers = WSS_URLS.map(url => new WsProvider(url));
+  apis = await Promise.all(providers.map(provider => ApiPromise.create({ provider })));
+
+  previousBalances = await Promise.all(
     WALLET_ADDRESSES.map((address, index) => apis[index].query.system.account(address))
   );
 
@@ -30,13 +37,13 @@ async function main() {
     console.log(`Initial balance for wallet ${WALLET_ADDRESSES[index]}: ${balance.data.free.toHuman()}`);
   });
 
-  const subscriptions = WALLET_ADDRESSES.map((address, index) =>
+  subscriptions = WALLET_ADDRESSES.map((address, index) =>
     apis[index].query.system.account(address, (balance) => {
       if (balance.data.free.toHuman() !== previousBalances[index].data.free.toHuman()) {
         console.log(`Balance changed for wallet ${address}: ${balance.data.free.toHuman()}`);
 
         // Send balance change to your Next.js Netlify function
-        /*fetch(NETLIFY_FUNCTION_URL, {
+        fetch(NETLIFY_FUNCTION_URL, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -51,10 +58,30 @@ async function main() {
           })
           .catch((error) => {
             console.error('Error sending balance change to Netlify function:', error);
-          });*/
+          });
       }
     })
   );
+}
+
+async function reconnectProviders() {
+  console.log('Reconnecting to providers...');
+
+  // Unsubscribe from existing subscriptions
+  subscriptions.forEach(unsub => unsub());
+
+  // Disconnect from existing providers
+  await Promise.all(apis.map(api => api.disconnect()));
+
+  // Connect to providers and set up new subscriptions
+  await connectProviders();
+}
+
+async function main() {
+  await connectProviders();
+
+  // Reconnect to providers every RECONNECT_INTERVAL milliseconds
+  setInterval(reconnectProviders, RECONNECT_INTERVAL);
 }
 
 main().catch(console.error);
