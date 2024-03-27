@@ -1,0 +1,16 @@
+{
+  "name": "wallet-watch",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@polkadot/api": "^10.12.4",
+    "node-fetch": "^3.3.2"
+  }
+}
