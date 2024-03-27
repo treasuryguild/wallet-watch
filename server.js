@@ -19,7 +19,7 @@ const WSS_URLS = [
 const NETLIFY_FUNCTION_URL = 'https://your-netlify-site.netlify.app/api/handle-balance-change';
 
 // Interval to reconnect to providers (in milliseconds)
-const RECONNECT_INTERVAL = 600000; // 10 minutes
+const RECONNECT_INTERVAL = 300000; // 5 minutes
 
 let apis = [];
 let previousBalances = [];
