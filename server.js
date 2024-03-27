@@ -1,5 +1,5 @@
-const { ApiPromise, WsProvider } = require('@polkadot/api');
-const fetch = require('node-fetch');
+import { ApiPromise, WsProvider } from '@polkadot/api';
+import fetch from 'node-fetch';
 
 // Replace with your desired Polkadot node URL
 const WSS_URL = 'wss://rpc.polkadot.io';
