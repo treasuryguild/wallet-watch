@@ -1,5 +1,6 @@
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import fetch from 'node-fetch';
+import http from 'http';
 
 // Replace with the addresses of the wallets you want to watch
 const WALLET_ADDRESSES = [
@@ -18,10 +19,12 @@ const WSS_URLS = [
 // Replace with the URL of your Next.js Netlify function
 const NETLIFY_FUNCTION_URL = 'https://your-netlify-site.netlify.app/api/handle-balance-change';
 
+// Port number to bind the server
+const PORT = process.env.PORT || 4000;
+
 async function main() {
   const providers = WSS_URLS.map(url => new WsProvider(url));
   const apis = await Promise.all(providers.map(provider => ApiPromise.create({ provider })));
-
   const previousBalances = await Promise.all(
     WALLET_ADDRESSES.map((address, index) => apis[index].query.system.account(address))
   );
@@ -55,6 +58,17 @@ async function main() {
       }
     })
   );
+
+  // Create an HTTP server and bind it to the specified port
+  const server = http.createServer((req, res) => {
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'text/plain');
+    res.end('Server is running');
+  });
+
+  server.listen(PORT, () => {
+    console.log(`Server is listening on port ${PORT}`);
+  });
 }
 
 main().catch(console.error);
