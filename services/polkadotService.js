@@ -50,7 +50,19 @@ export function subscribeToBalanceChanges(apis, addresses, previousBalances, wsU
   
               if (transactionRecord) {
                 const fromAddress = transactionRecord.event.data[0].toString();
-                const amount = transactionRecord.event.data[2].toString();
+                let aggregatedAmount = BigInt(0);
+              
+                // Iterate through all records and find transfer events where the address is the recipient
+                allRecords.forEach(({ event }) => {
+                  if (
+                    event.section === 'balances' &&
+                    event.method === 'Transfer' &&
+                    event.data[1].toString() === address
+                  ) {
+                    const amount = BigInt(event.data[2].toString());
+                    aggregatedAmount += amount;
+                  }
+                });
               
                 // Find the corresponding extrinsic for the event
                 const transactionEvent = allRecords.find(
@@ -58,8 +70,7 @@ export function subscribeToBalanceChanges(apis, addresses, previousBalances, wsU
                     event.section === 'balances' &&
                     event.method === 'Transfer' &&
                     event.data[0].toString() === fromAddress &&
-                    event.data[1].toString() === address &&
-                    event.data[2].toString() === amount
+                    event.data[1].toString() === address
                 );
               
                 if (transactionEvent) {
@@ -73,7 +84,7 @@ export function subscribeToBalanceChanges(apis, addresses, previousBalances, wsU
                     const transactionDetails = {
                       walletAddress: address,
                       fromAddress,
-                      amount,
+                      amount: aggregatedAmount.toString(),
                       transactionHash,
                       blockNumber: blockHeader.number.toNumber(),
                       blockHash: blockHeader.hash.toString(),
