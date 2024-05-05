@@ -2,7 +2,7 @@
 import http from 'http';
 import { connectToProviders, getInitialBalances, subscribeToBalanceChanges } from './services/polkadotService.js';
 import { checkCardanoWallets } from './services/cardanoService.js';
-import { WALLET_ADDRESSES, WSS_URLS, PORT } from './config/config.js';
+import { WALLET_ADDRESSES, WSS_URLS, SUBSCAN_URLS, PORT } from './config/config.js';
 
 function logInitialBalances(balances, addresses, urls) {
   balances.forEach((balances, walletIndex) => {
@@ -16,7 +16,8 @@ async function main() {
   const apis = await connectToProviders(WSS_URLS);
   const previousBalances = await getInitialBalances(apis, WALLET_ADDRESSES);
   logInitialBalances(previousBalances, WALLET_ADDRESSES, WSS_URLS);
-  const subscriptions = subscribeToBalanceChanges(apis, WALLET_ADDRESSES, previousBalances, WSS_URLS);
+
+  const subscriptions = subscribeToBalanceChanges(apis, WALLET_ADDRESSES, previousBalances, WSS_URLS, SUBSCAN_URLS);
 
   // Check Cardano wallets
   await checkCardanoWallets();

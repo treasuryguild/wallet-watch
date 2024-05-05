@@ -11,5 +11,11 @@ export const WALLET_ADDRESSES = [
     // Add more WebSocket URLs as needed
   ];
   
+  export const SUBSCAN_URLS = [
+    'https://alephzero-testnet.api.subscan.io',
+    'https://polkadot.api.subscan.io', 
+    // Add more WebSocket URLs as needed
+  ];
+
   export const NETLIFY_FUNCTION_URL = 'https://your-netlify-site.netlify.app/api/handle-balance-change';
   export const PORT = process.env.PORT || 4000;
