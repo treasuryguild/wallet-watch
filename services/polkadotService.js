@@ -2,8 +2,9 @@
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import fetch from 'node-fetch';
 import { sendTransactionDetailsToNetlify } from '../utils/netlifyUtils.js';
-import { SUBSCAN_URLS } from '../config/config.js';
+import { SUBSCAN_URLS, PROVIDERS } from '../config/config.js';
 import { supabaseAnon } from '../lib/supabaseClient.js';
+import { sendTransactionDetailsToSupabase } from './supabaseService.js';
 
 export async function connectToProviders(urls) {
   const providers = urls.map(url => new WsProvider(url));
@@ -19,12 +20,7 @@ export async function getInitialBalances(apis, addresses) {
   );
 }
 
-async function delay(numBlocks) {
-  const delayDuration = numBlocks * 6000; // Assuming an average block time of 6 seconds
-  await new Promise(resolve => setTimeout(resolve, delayDuration));
-}
-
-export async function getTransactionDetails(address, subscanUrl, maxAttempts = 15, pollInterval = 5000) {
+export async function getTransactionDetails(address, subscanUrl, api, providerName, maxAttempts = 15, pollInterval = 5000) {
   async function fetchTransactionDetails() {
     const apiUrl = `${subscanUrl}/api/v2/scan/transfers`;
     const params = {
@@ -84,7 +80,11 @@ export async function getTransactionDetails(address, subscanUrl, maxAttempts = 1
       if (!existsInSupabase) {
         console.log('New transaction found:', transactionDetails);
         newTransactionFound = true;
-        return {
+
+        const tokenDecimals = api.registry.chainDecimals[0];
+        const tokenSymbol = api.registry.chainTokens[0];
+        
+        const txDetails = {
           walletAddress: address,
           fromAddress: transactionDetails.from,
           amount: transactionDetails.amount,
@@ -92,7 +92,14 @@ export async function getTransactionDetails(address, subscanUrl, maxAttempts = 1
           blockNumber: transactionDetails.block_num,
           timestamp: transactionDetails.block_timestamp,
           fee: transactionDetails.fee,
+          tokenSymbol,
+          tokenDecimals,
+          tokenName: providerName,
         };
+
+        await sendTransactionDetailsToSupabase(txDetails);
+
+        return txDetails;
       }
     }
 
@@ -104,16 +111,16 @@ export async function getTransactionDetails(address, subscanUrl, maxAttempts = 1
   return null;
 }
 
-export function subscribeToBalanceChanges(apis, addresses, previousBalances, wsUrls, subscanUrls) {
+export function subscribeToBalanceChanges(apis, addresses, previousBalances, providers, subscanUrls) {
   return addresses.map((address, walletIndex) =>
     apis.map((api, providerIndex) =>
       api.query.system.account(address, async (balance) => {
         const newBalance = balance.data.free.toHuman();
         const previousBalance = previousBalances[walletIndex][providerIndex];
+        const provider = providers[providerIndex];
 
         if (newBalance !== previousBalance) {
-          const providerUrl = wsUrls[providerIndex] || 'Unknown Provider';
-          console.log(`Balance changed for wallet ${address} on provider ${providerUrl}: ${newBalance}`);
+          console.log(`Balance changed for wallet ${address} on provider ${provider.name}: ${newBalance}`);
 
           // Compare the new balance with the previous balance
           if (newBalance > previousBalance) {
@@ -126,10 +133,10 @@ export function subscribeToBalanceChanges(apis, addresses, previousBalances, wsU
             const blockHeader = await api.derive.chain.getHeader(lastBlockHash);
 
             // Get the appropriate Subscan URL based on the provider
-            const subscanUrl = SUBSCAN_URLS[providerIndex];
+            const subscanUrl = subscanUrls.find(url => url.name === provider.name)?.url;
 
             // Get the transaction details using Subscan API
-            const txDetails = await getTransactionDetails(address, subscanUrl);
+            const txDetails = await getTransactionDetails(address, subscanUrl, api, provider.name);
             console.log('Transaction details:', txDetails);
           }
 
