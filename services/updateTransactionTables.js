@@ -1,5 +1,5 @@
 // updateTransactionTables.js
-import { supabaseAnon } from '../lib/supabaseClient.js';
+import { supabaseAnon } from '../lib/supabaseClient';
 
 async function getOrCreateTokens(tokens) {
   const tokenNames = tokens.map(token => token.name);
@@ -69,76 +69,6 @@ async function getOrCreateExternalWallets(addresses) {
   return existingWalletMap;
 }
 
-async function insertTransactionData(transactionData, contributionIds, tokenMap, externalWalletMap) {
-  const inputData = [];
-  const outputData = [];
-
-  if (transactionData.contributions && transactionData.contributions.length > 0) {
-    transactionData.contributions.forEach((contribution, index) => {
-      const contributionId = contributionIds[index];
-
-      if (contribution.inputs) {
-        contribution.inputs.forEach(input => {
-          if (input.tokens) {
-            input.tokens.forEach(token => {
-              const tokenId = tokenMap.get(token.token.name);
-              inputData.push({
-                transaction_id: transactionData.id,
-                contribution_id: contributionId,
-                from_address: input.fromAddress,
-                token_id: tokenId,
-                amount: token.amount
-              });
-            });
-          }
-        });
-      }
-
-      if (contribution.outputs) {
-        contribution.outputs.forEach(output => {
-          const externalWalletId = externalWalletMap.get(output.toAddress);
-          if (output.tokens) {
-            output.tokens.forEach(token => {
-              const tokenId = tokenMap.get(token.token.name);
-              outputData.push({
-                transaction_id: transactionData.id,
-                contribution_id: contributionId,
-                role: output.role,
-                to_address: output.toAddress,
-                token_id: tokenId,
-                amount: token.amount,
-                external_wallet_id: externalWalletId
-              });
-            });
-          }
-        });
-      }
-    });
-  }
-
-  if (inputData.length > 0) {
-    const { error: inputsError } = await supabaseAnon
-      .from('transaction_inputs')
-      .insert(inputData);
-
-    if (inputsError) {
-      console.error('Error inserting transaction inputs:', inputsError);
-      throw inputsError;
-    }
-  }
-
-  if (outputData.length > 0) {
-    const { error: outputsError } = await supabaseAnon
-      .from('transaction_outputs')
-      .insert(outputData);
-
-    if (outputsError) {
-      console.error('Error inserting transaction outputs:', outputsError);
-      throw outputsError;
-    }
-  }
-}
-
 export default async function updateTransactionTables(jsonData) {
   const { transactionHash, blockNumber, fromAddress, toAddress, success, fee, project_id, contributions = [] } = jsonData;
 
@@ -151,67 +81,164 @@ export default async function updateTransactionTables(jsonData) {
     project_id: project_id,
     fee: fee,
     contributions: contributions,
-    tx_type: 'incoming'
+    tx_type: 'outgoing'
   };
 
-try {
-  // Start a transaction
-  await supabaseAnon.rpc('begin');
+  try {
+    // Start a transaction
+    await supabaseAnon.rpc('begin');
 
-  const { data: insertedTransaction, error: transactionError } = await supabaseAnon
-  .from('transactions')
-  .insert(transactionData)
-  .select('id');
-
-  if (transactionError) {
-    console.error('Error inserting transaction:', transactionError);
-    throw transactionError;
-  }
-  
-  transactionData.id = insertedTransaction[0].id;
-  
-  if (contributions.length > 0) {
-    const contributionData = contributions.map(contribution => ({
-      transaction_id: transactionData.id,
-      name: contribution.name,
-      labels: contribution.labels,
-      task_date: contribution.taskDate
-    }));
-  
-  const { data: insertedContributions, error: contributionError } = await supabaseAnon
-    .from('contributions')
-    .insert(contributionData)
-    .select('id');
-  
-  if (contributionError) {
-    console.error('Error inserting contributions:', contributionError);
-    throw contributionError;
-  }
-  
-  const contributionIds = insertedContributions.map(contribution => contribution.id);
-  
-  const allTokens = contributions.flatMap(contribution =>
-    contribution.inputs.flatMap(input =>
-      input.tokens.map(token => token.token)
-    ).concat(
-      contribution.outputs.flatMap(output =>
-        output.tokens.map(token => token.token)
+    const allTokens = contributions.flatMap(contribution =>
+      contribution.inputs.flatMap(input =>
+        input.tokens.map(token => token.token)
+      ).concat(
+        contribution.outputs.flatMap(output =>
+          output.tokens.map(token => token.token)
+        )
       )
-    )
-  );
-  
-  const allExternalAddresses = contributions.flatMap(contribution =>
-    contribution.outputs.map(output => output.toAddress)
-  );
-  
-  const [tokenMap, externalWalletMap] = await Promise.all([
-    getOrCreateTokens(allTokens),
-    getOrCreateExternalWallets(allExternalAddresses)
-  ]);
-  
-  await insertTransactionData(transactionData, contributionIds, tokenMap, externalWalletMap);
-  }
-  console.log('Transaction tables updated successfully');
+    );
+
+    const allExternalAddresses = contributions.flatMap(contribution =>
+      contribution.outputs.map(output => output.toAddress)
+    );
+
+    const [tokenMap, externalWalletMap] = await Promise.all([
+      getOrCreateTokens(allTokens),
+      getOrCreateExternalWallets(allExternalAddresses)
+    ]);
+
+    const { data: insertedTransaction, error: transactionError } = await supabaseAnon
+      .from('transactions')
+      .insert({
+        ...transactionData,
+        data: {
+          ...transactionData,
+          contributions: contributions.map((contribution, index) => ({
+            ...contribution,
+            inputs: contribution.inputs.map(input => ({
+              ...input,
+              tokens: input.tokens.map(token => ({
+                ...token,
+                token: {
+                  id: tokenMap.get(token.token.name),
+                  ...token.token
+                }
+              }))
+            })),
+            outputs: contribution.outputs.map(output => ({
+              ...output,
+              tokens: output.tokens.map(token => ({
+                ...token,
+                token: {
+                  id: tokenMap.get(token.token.name),
+                  ...token.token
+                }
+              })),
+              externalWalletId: externalWalletMap.get(output.toAddress)
+            }))
+          }))
+        }
+      })
+      .select('id');
+
+    if (transactionError) {
+      console.error('Error inserting transaction:', transactionError);
+      throw transactionError;
+    }
+
+    transactionData.id = insertedTransaction[0].id;
+
+    if (contributions.length > 0) {
+      const contributionData = contributions.map(contribution => ({
+        transaction_id: transactionData.id,
+        name: contribution.name,
+        labels: contribution.labels,
+        task_date: contribution.taskDate
+      }));
+
+      const { data: insertedContributions, error: contributionError } = await supabaseAnon
+        .from('contributions')
+        .insert(contributionData)
+        .select('id');
+
+      if (contributionError) {
+        console.error('Error inserting contributions:', contributionError);
+        throw contributionError;
+      }
+
+      const contributionIds = insertedContributions.map(contribution => contribution.id);
+
+      const inputData = [];
+      const outputData = [];
+
+      contributions.forEach((contribution, index) => {
+        const contributionId = contributionIds[index];
+
+        if (contribution.inputs) {
+          contribution.inputs.forEach(input => {
+            if (input.tokens) {
+              input.tokens.forEach(token => {
+                const tokenId = tokenMap.get(token.token.name);
+                inputData.push({
+                  transaction_id: transactionData.id,
+                  contribution_id: contributionId,
+                  from_address: input.fromAddress,
+                  token_id: tokenId,
+                  amount: token.amount
+                });
+              });
+            }
+          });
+        }
+
+        if (contribution.outputs) {
+          contribution.outputs.forEach(output => {
+            const externalWalletId = externalWalletMap.get(output.toAddress);
+            if (output.tokens) {
+              output.tokens.forEach(token => {
+                const tokenId = tokenMap.get(token.token.name);
+                outputData.push({
+                  transaction_id: transactionData.id,
+                  contribution_id: contributionId,
+                  role: output.role,
+                  to_address: output.toAddress,
+                  token_id: tokenId,
+                  amount: token.amount,
+                  external_wallet_id: externalWalletId
+                });
+              });
+            }
+          });
+        }
+      });
+
+      if (inputData.length > 0) {
+        const { error: inputsError } = await supabaseAnon
+          .from('transaction_inputs')
+          .insert(inputData);
+
+        if (inputsError) {
+          console.error('Error inserting transaction inputs:', inputsError);
+          throw inputsError;
+        }
+      }
+
+      if (outputData.length > 0) {
+        const { error: outputsError } = await supabaseAnon
+          .from('transaction_outputs')
+          .insert(outputData);
+
+        if (outputsError) {
+          console.error('Error inserting transaction outputs:', outputsError);
+          throw outputsError;
+        }
+      }
+    }
+
+    console.log('Transaction tables updated successfully');
+
+    // Commit the transaction
+    await supabaseAnon.rpc('commit');
   } catch (error) {
     // Rollback the transaction in case of an error
     await supabaseAnon.rpc('rollback');
