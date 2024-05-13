@@ -79,7 +79,25 @@ export async function getTransactionDetails(address, subscanUrl, api, providerNa
         const tokenDecimals = api.registry.chainDecimals[0];
         const tokenSymbol = api.registry.chainTokens[0];
 
-        const txDetails = newTransactions.map(transaction => ({
+        for (const transaction of newTransactions) {
+          const txDetails = {
+            walletAddress: address,
+            fromAddress: transaction.from,
+            amount: transaction.amount,
+            transactionHash: transaction.hash,
+            blockNumber: transaction.block_num,
+            timestamp: transaction.block_timestamp,
+            fee: transaction.fee,
+            tokenSymbol,
+            tokenDecimals,
+            tokenName: providerName,
+          };
+
+          await sendTransactionDetailsToSupabase(txDetails);
+          existingTransactionHashes.push(transaction.hash);
+        }
+
+        return newTransactions.map(transaction => ({
           walletAddress: address,
           fromAddress: transaction.from,
           amount: transaction.amount,
@@ -91,10 +109,6 @@ export async function getTransactionDetails(address, subscanUrl, api, providerNa
           tokenDecimals,
           tokenName: providerName,
         }));
-
-        await Promise.all(txDetails.map(sendTransactionDetailsToSupabase));
-
-        return txDetails;
       }
     }
 
