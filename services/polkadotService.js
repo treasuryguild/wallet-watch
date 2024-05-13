@@ -96,21 +96,12 @@ export async function getTransactionDetails(address, subscanUrl, api, providerNa
             txType,
           };
 
-          // Check if the transaction hash already exists in the database
-          const { data: existingTransaction, error: selectError } = await supabaseAnon
-            .from('transactions')
-            .select('hash')
-            .eq('hash', transaction.hash)
-            .single();
-
-          if (selectError) {
-            console.error('Error checking existing transaction:', selectError);
-            continue;
-          }
-
-          if (!existingTransaction) {
+          try {
             await sendTransactionDetailsToSupabase(txDetails);
             existingTransactionHashes.push(transaction.hash);
+            console.log('Transaction details sent to Supabase successfully:', txDetails);
+          } catch (error) {
+            console.error('Error sending transaction details to Supabase:', error);
           }
         }
 
