@@ -70,7 +70,7 @@ async function getOrCreateExternalWallets(addresses) {
 }
 
 export default async function updateTransactionTables(jsonData) {
-  const { transactionHash, blockNumber, fromAddress, toAddress, success, fee, project_id, contributions = [] } = jsonData;
+  const { transactionHash, blockNumber, fromAddress, toAddress, success, fee, project_id, contributions = [], tx_type } = jsonData;
 
   const transactionData = {
     hash: transactionHash,
@@ -81,7 +81,7 @@ export default async function updateTransactionTables(jsonData) {
     project_id: project_id,
     fee: fee,
     contributions: contributions,
-    tx_type: 'outgoing'
+    tx_type: tx_type
   };
 
   try {

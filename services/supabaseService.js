@@ -18,26 +18,28 @@ async function getProjectIdByAddress(address) {
 }
 
 function formatDate(timestamp) {
-    const date = new Date(timestamp);
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  }
+  const date = new Date(timestamp);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 async function sendTransactionDetailsToSupabase(transactionDetails) {
-    const {
-        walletAddress,
-        fromAddress,
-        amount,
-        transactionHash,
-        blockNumber,
-        timestamp,
-        fee,
-        tokenSymbol,
-        tokenDecimals,
-        tokenName,
-      } = transactionDetails;
+  const {
+    walletAddress,
+    fromAddress,
+    amount,
+    transactionHash,
+    blockNumber,
+    timestamp,
+    fee,
+    tokenSymbol,
+    tokenDecimals,
+    tokenName,
+    txType,
+  } = transactionDetails;
+
   // Check if the receiving address exists in the "wallets" table
   const projectId = await getProjectIdByAddress(walletAddress);
 
@@ -46,7 +48,7 @@ async function sendTransactionDetailsToSupabase(transactionDetails) {
     return;
   }
 
-  const formattedDate = formatDate(timestamp*1000);
+  const formattedDate = formatDate(timestamp * 1000);
 
   const jsonData = {
     transactionHash,
@@ -56,10 +58,11 @@ async function sendTransactionDetailsToSupabase(transactionDetails) {
     success: true,
     fee,
     project_id: projectId,
+    tx_type: txType,
     contributions: [
       {
-        name: 'Incoming Rewards',
-        labels: ['Rewards'],
+        name: txType === 'incoming' ? 'Incoming Rewards' : 'Outgoing Transaction',
+        labels: txType === 'incoming' ? ['Rewards'] : ['Transaction'],
         taskDate: formattedDate,
         inputs: [
           {
@@ -67,10 +70,10 @@ async function sendTransactionDetailsToSupabase(transactionDetails) {
             tokens: [
               {
                 token: {
-                    symbol: tokenSymbol,
-                    name: tokenName,
-                    decimals: tokenDecimals,
-                    contractAddress: '',
+                  symbol: tokenSymbol,
+                  name: tokenName,
+                  decimals: tokenDecimals,
+                  contractAddress: '',
                 },
                 amount,
               },
@@ -80,14 +83,14 @@ async function sendTransactionDetailsToSupabase(transactionDetails) {
         outputs: [
           {
             toAddress: walletAddress,
-            role: ['recipient'],
+            role: txType === 'incoming' ? ['recipient'] : ['sender'],
             tokens: [
               {
                 token: {
-                    symbol: tokenSymbol,
-                    name: tokenName,
-                    decimals: tokenDecimals,
-                    contractAddress: '',
+                  symbol: tokenSymbol,
+                  name: tokenName,
+                  decimals: tokenDecimals,
+                  contractAddress: '',
                 },
                 amount,
               },

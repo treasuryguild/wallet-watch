@@ -80,6 +80,8 @@ export async function getTransactionDetails(address, subscanUrl, api, providerNa
         const tokenSymbol = api.registry.chainTokens[0];
 
         for (const transaction of newTransactions) {
+          const txType = transaction.from === address ? 'outgoing' : 'incoming';
+
           const txDetails = {
             walletAddress: address,
             fromAddress: transaction.from,
@@ -91,6 +93,7 @@ export async function getTransactionDetails(address, subscanUrl, api, providerNa
             tokenSymbol,
             tokenDecimals,
             tokenName: providerName,
+            txType,
           };
 
           // Check if the transaction hash already exists in the database
@@ -122,6 +125,7 @@ export async function getTransactionDetails(address, subscanUrl, api, providerNa
           tokenSymbol,
           tokenDecimals,
           tokenName: providerName,
+          txType: transaction.from === address ? 'outgoing' : 'incoming',
         }));
       }
     }
