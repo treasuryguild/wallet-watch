@@ -65,7 +65,7 @@ export async function getTransactionDetails(address, subscanUrl, api, providerNa
 
   let attempts = 0;
   let newTransactionsFound = false;
-  const existingTransactionHashes = await getExistingTransactionHashes();
+  let existingTransactionHashes = await getExistingTransactionHashes();
 
   while (attempts < maxAttempts && !newTransactionsFound) {
     const transactionDetails = await fetchTransactionDetails();
@@ -93,8 +93,22 @@ export async function getTransactionDetails(address, subscanUrl, api, providerNa
             tokenName: providerName,
           };
 
-          await sendTransactionDetailsToSupabase(txDetails);
-          existingTransactionHashes.push(transaction.hash);
+          // Check if the transaction hash already exists in the database
+          const { data: existingTransaction, error: selectError } = await supabaseAnon
+            .from('transactions')
+            .select('hash')
+            .eq('hash', transaction.hash)
+            .single();
+
+          if (selectError) {
+            console.error('Error checking existing transaction:', selectError);
+            continue;
+          }
+
+          if (!existingTransaction) {
+            await sendTransactionDetailsToSupabase(txDetails);
+            existingTransactionHashes.push(transaction.hash);
+          }
         }
 
         return newTransactions.map(transaction => ({
