@@ -43,61 +43,56 @@ export async function getTransactionDetails(address, subscanUrl, api, providerNa
       if (data && data.data && data.data.transfers && data.data.transfers.length > 0) {
         // Sort the transfers by timestamp in descending order
         const sortedTransfers = data.data.transfers.sort((a, b) => b.block_timestamp - a.block_timestamp);
-        return sortedTransfers[0];
+        return sortedTransfers;
       }
     }
 
-    return null;
+    return [];
   }
 
-  async function checkTransactionInSupabase(transactionHash) {
+  async function getExistingTransactionHashes() {
     const { data, error } = await supabaseAnon
       .from('transactions')
-      .select('hash')
-      .eq('hash', transactionHash)
-      .single();
+      .select('hash');
 
     if (error) {
-      console.error('Error checking transaction in Supabase:', error.message);
-      return false;
+      console.error('Error fetching existing transaction hashes from Supabase:', error.message);
+      return [];
     }
 
-    return data !== null;
+    return data.map(transaction => transaction.hash);
   }
 
   let attempts = 0;
-  let newTransactionFound = false;
+  let newTransactionsFound = false;
+  const existingTransactionHashes = await getExistingTransactionHashes();
 
-  while (attempts < maxAttempts && !newTransactionFound) {
+  while (attempts < maxAttempts && !newTransactionsFound) {
     const transactionDetails = await fetchTransactionDetails();
 
-    if (transactionDetails) {
-      const { hash: transactionHash } = transactionDetails;
+    if (transactionDetails.length > 0) {
+      const newTransactions = transactionDetails.filter(transaction => !existingTransactionHashes.includes(transaction.hash));
 
-      const existsInSupabase = await checkTransactionInSupabase(transactionHash);
-      console.log('Transaction exists in Supabase:', existsInSupabase);
-
-      if (!existsInSupabase) {
-        console.log('New transaction found:', transactionDetails);
-        newTransactionFound = true;
+      if (newTransactions.length > 0) {
+        newTransactionsFound = true;
 
         const tokenDecimals = api.registry.chainDecimals[0];
         const tokenSymbol = api.registry.chainTokens[0];
-        
-        const txDetails = {
+
+        const txDetails = newTransactions.map(transaction => ({
           walletAddress: address,
-          fromAddress: transactionDetails.from,
-          amount: transactionDetails.amount,
-          transactionHash: transactionDetails.hash,
-          blockNumber: transactionDetails.block_num,
-          timestamp: transactionDetails.block_timestamp,
-          fee: transactionDetails.fee,
+          fromAddress: transaction.from,
+          amount: transaction.amount,
+          transactionHash: transaction.hash,
+          blockNumber: transaction.block_num,
+          timestamp: transaction.block_timestamp,
+          fee: transaction.fee,
           tokenSymbol,
           tokenDecimals,
           tokenName: providerName,
-        };
+        }));
 
-        await sendTransactionDetailsToSupabase(txDetails);
+        await Promise.all(txDetails.map(sendTransactionDetailsToSupabase));
 
         return txDetails;
       }
@@ -108,7 +103,7 @@ export async function getTransactionDetails(address, subscanUrl, api, providerNa
   }
 
   console.log('No new transaction details found after multiple attempts.');
-  return null;
+  return [];
 }
 
 export function subscribeToBalanceChanges(apis, addresses, previousBalances, providers, subscanUrls) {
