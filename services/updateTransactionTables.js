@@ -1,5 +1,5 @@
 // updateTransactionTables.js
-import { supabaseAnon } from '../lib/supabaseClient';
+import { supabaseAnon } from '../lib/supabaseClient.js';
 
 async function getOrCreateTokens(tokens) {
   const tokenNames = tokens.map(token => token.name);
