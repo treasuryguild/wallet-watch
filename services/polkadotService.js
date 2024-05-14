@@ -60,7 +60,19 @@ export async function getTransactionDetails(address, subscanUrl, api, providerNa
       return [];
     }
 
-    return data.map(transaction => transaction.hash);
+    const { data: pendingTransactions, error: pendingTransactionsError } = await supabaseAnon
+    .from('pending_transactions')
+    .select('hash');
+
+    if (pendingTransactionsError) {
+      console.error('Error fetching pending transaction hashes from Supabase:', pendingTransactionsError.message);
+      return [];
+    }
+  
+    const existingHashes = transactions.map(transaction => transaction.hash);
+    const pendingHashes = pendingTransactions.map(transaction => transaction.hash);
+  
+    return existingHashes.concat(pendingHashes);
   }
 
   let attempts = 0;
