@@ -51,12 +51,12 @@ export async function getTransactionDetails(address, subscanUrl, api, providerNa
   }
 
   async function getExistingTransactionHashes() {
-    const { data, error } = await supabaseAnon
+    const { data: transactions, error: transactionsError } = await supabaseAnon
       .from('transactions')
       .select('hash');
 
-    if (error) {
-      console.error('Error fetching existing transaction hashes from Supabase:', error.message);
+    if (transactionsError) {
+      console.error('Error fetching existing transaction hashes from Supabase:', transactionsError.message);
       return [];
     }
 
