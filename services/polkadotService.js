@@ -60,19 +60,32 @@ export async function getTransactionDetails(address, subscanUrl, api, providerNa
       return [];
     }
 
-    const { data: pendingTransactions, error: pendingTransactionsError } = await supabaseAnon
-    .from('pending_transactions')
-    .select('hash');
+    return transactions.map(transaction => transaction.hash);
+  }
 
-    if (pendingTransactionsError) {
-      console.error('Error fetching pending transaction hashes from Supabase:', pendingTransactionsError.message);
-      return [];
+  async function isHashInPendingTransactions(hash) {
+    const maxRetries = 3;
+    const retryDelay = 5000;
+
+    for (let retry = 0; retry < maxRetries; retry++) {
+      const { data: pendingTransactions, error: pendingTransactionsError } = await supabaseAnon
+        .from('pending_transactions')
+        .select('hash')
+        .eq('hash', hash);
+
+      if (pendingTransactionsError) {
+        console.error('Error fetching pending transaction hash from Supabase:', pendingTransactionsError.message);
+        return false;
+      }
+
+      if (pendingTransactions.length > 0) {
+        return true;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, retryDelay));
     }
-  
-    const existingHashes = transactions.map(transaction => transaction.hash);
-    const pendingHashes = pendingTransactions.map(transaction => transaction.hash);
-  
-    return existingHashes.concat(pendingHashes);
+
+    return false;
   }
 
   let attempts = 0;
@@ -83,7 +96,16 @@ export async function getTransactionDetails(address, subscanUrl, api, providerNa
     const transactionDetails = await fetchTransactionDetails();
 
     if (transactionDetails.length > 0) {
-      const newTransactions = transactionDetails.filter(transaction => !existingTransactionHashes.includes(transaction.hash));
+      const newTransactions = [];
+
+      for (const transaction of transactionDetails) {
+        const isExistingTransaction = existingTransactionHashes.includes(transaction.hash);
+        const isPendingTransaction = await isHashInPendingTransactions(transaction.hash);
+
+        if (!isExistingTransaction && !isPendingTransaction) {
+          newTransactions.push(transaction);
+        }
+      }
 
       if (newTransactions.length > 0) {
         newTransactionsFound = true;
