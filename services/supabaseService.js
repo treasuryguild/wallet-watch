@@ -40,6 +40,23 @@ async function sendTransactionDetailsToSupabase(transactionDetails) {
     txType,
   } = transactionDetails;
 
+  // Check if the transaction already exists in the "transactions" table
+  const { data: existingTransactions, error: selectError } = await supabaseAnon
+    .from('transactions')
+    .select('hash')
+    .eq('hash', transactionHash)
+    .limit(1);
+  
+  if (selectError) {
+    console.error('Error checking for existing transaction:', selectError.message);
+    return;
+  }
+  
+  if (existingTransactions.length > 0) {
+    console.log('Transaction already exists in the database:', transactionHash);
+    return;
+  }
+
   // Check if the receiving address exists in the "wallets" table
   const projectId = await getProjectIdByAddress(walletAddress);
 

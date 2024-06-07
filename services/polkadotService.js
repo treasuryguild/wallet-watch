@@ -5,6 +5,7 @@ import { sendTransactionDetailsToNetlify } from '../utils/netlifyUtils.js';
 import { SUBSCAN_URLS, PROVIDERS } from '../config/config.js';
 import { supabaseAnon } from '../lib/supabaseClient.js';
 import { sendTransactionDetailsToSupabase } from './supabaseService.js';
+import { getTransactionDetails } from '../utils/getPolkaTxDetails.js';
 
 export async function connectToProviders(urls) {
   const providers = urls.map(url => new WsProvider(url));
@@ -20,150 +21,9 @@ export async function getInitialBalances(apis, addresses) {
   );
 }
 
-export async function getTransactionDetails(address, subscanUrl, api, providerName, maxAttempts = 15, pollInterval = 5000) {
-  async function fetchTransactionDetails() {
-    const apiUrl = `${subscanUrl}/api/v2/scan/transfers`;
-    const params = {
-      address: address,
-      row: 10,
-      page: 0,
-    };
-
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(params),
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-
-      if (data && data.data && data.data.transfers && data.data.transfers.length > 0) {
-        // Sort the transfers by timestamp in descending order
-        const sortedTransfers = data.data.transfers.sort((a, b) => b.block_timestamp - a.block_timestamp);
-        return sortedTransfers;
-      }
-    }
-
-    return [];
-  }
-
-  async function getExistingTransactionHashes() {
-    const { data: transactions, error: transactionsError } = await supabaseAnon
-      .from('transactions')
-      .select('hash');
-
-    if (transactionsError) {
-      console.error('Error fetching existing transaction hashes from Supabase:', transactionsError.message);
-      return [];
-    }
-
-    return transactions.map(transaction => transaction.hash);
-  }
-
-  async function isHashInPendingTransactions(hash) {
-    const maxRetries = 3;
-    const retryDelay = 5000;
-
-    for (let retry = 0; retry < maxRetries; retry++) {
-      const { data: pendingTransactions, error: pendingTransactionsError } = await supabaseAnon
-        .from('pending_transactions')
-        .select('hash')
-        .eq('hash', hash);
-
-      if (pendingTransactionsError) {
-        console.error('Error fetching pending transaction hash from Supabase:', pendingTransactionsError.message);
-        return false;
-      }
-
-      if (pendingTransactions.length > 0) {
-        return true;
-      }
-
-      await new Promise(resolve => setTimeout(resolve, retryDelay));
-    }
-
-    return false;
-  }
-
-  let attempts = 0;
-  let newTransactionsFound = false;
-  let existingTransactionHashes = await getExistingTransactionHashes();
-
-  while (attempts < maxAttempts && !newTransactionsFound) {
-    const transactionDetails = await fetchTransactionDetails();
-
-    if (transactionDetails.length > 0) {
-      const newTransactions = [];
-
-      for (const transaction of transactionDetails) {
-        const isExistingTransaction = existingTransactionHashes.includes(transaction.hash);
-        const isPendingTransaction = await isHashInPendingTransactions(transaction.hash);
-
-        if (!isExistingTransaction && !isPendingTransaction) {
-          newTransactions.push(transaction);
-        }
-      }
-
-      if (newTransactions.length > 0) {
-        newTransactionsFound = true;
-
-        const tokenDecimals = api.registry.chainDecimals[0];
-        const tokenSymbol = api.registry.chainTokens[0];
-
-        for (const transaction of newTransactions) {
-          const txType = transaction.from === address ? 'outgoing' : 'incoming';
-
-          const txDetails = {
-            walletAddress: address,
-            fromAddress: transaction.from,
-            amount: transaction.amount,
-            transactionHash: transaction.hash,
-            blockNumber: transaction.block_num,
-            timestamp: transaction.block_timestamp,
-            fee: transaction.fee,
-            tokenSymbol,
-            tokenDecimals,
-            tokenName: providerName,
-            txType,
-          };
-
-          try {
-            await sendTransactionDetailsToSupabase(txDetails);
-            existingTransactionHashes.push(transaction.hash);
-            console.log('Transaction details sent to Supabase successfully:', txDetails);
-          } catch (error) {
-            console.error('Error sending transaction details to Supabase:', error);
-          }
-        }
-
-        return newTransactions.map(transaction => ({
-          walletAddress: address,
-          fromAddress: transaction.from,
-          amount: transaction.amount,
-          transactionHash: transaction.hash,
-          blockNumber: transaction.block_num,
-          timestamp: transaction.block_timestamp,
-          fee: transaction.fee,
-          tokenSymbol,
-          tokenDecimals,
-          tokenName: providerName,
-          txType: transaction.from === address ? 'outgoing' : 'incoming',
-        }));
-      }
-    }
-
-    attempts++;
-    await new Promise(resolve => setTimeout(resolve, pollInterval));
-  }
-
-  console.log('No new transaction details found after multiple attempts.');
-  return [];
-}
-
 export function subscribeToBalanceChanges(apis, addresses, previousBalances, providers, subscanUrls) {
+  const lastProcessedBlockNumbers = new Map();
+
   return addresses.map((address, walletIndex) =>
     apis.map((api, providerIndex) =>
       api.query.system.account(address, async (balance) => {
@@ -178,18 +38,33 @@ export function subscribeToBalanceChanges(apis, addresses, previousBalances, pro
           if (newBalance > previousBalance) {
             console.log(`Balance increased for wallet ${address} from ${previousBalance} to ${newBalance}`);
 
-            // Get the last block hash
-            const lastBlockHash = await api.rpc.chain.getBlockHash();
-
-            // Get the block header
-            const blockHeader = await api.derive.chain.getHeader(lastBlockHash);
-
             // Get the appropriate Subscan URL based on the provider
             const subscanUrl = subscanUrls.find(url => url.name === provider.name)?.url;
 
+            // Get the last processed block number for the current wallet and provider
+            const lastProcessedBlockNumber = lastProcessedBlockNumbers.get(`${address}-${provider.name}`) || 0;
+
             // Get the transaction details using Subscan API
-            const txDetails = await getTransactionDetails(address, subscanUrl, api, provider.name);
+            const txDetails = await getTransactionDetails(address, subscanUrl, api, provider.name, lastProcessedBlockNumber);
             console.log('Transaction details:', txDetails);
+
+            if (txDetails.length > 0) {
+              for (const transaction of txDetails) {
+                const currentBlockNumber = transaction.blockNumber;
+
+                if (currentBlockNumber > lastProcessedBlockNumber) {
+                  try {
+                    await sendTransactionDetailsToSupabase(transaction);
+                    console.log('Transaction details sent to Supabase successfully:', transaction);
+                  } catch (error) {
+                    console.error('Error sending transaction details to Supabase:', error);
+                  }
+
+                  // Update the last processed block number for the current wallet and provider
+                  lastProcessedBlockNumbers.set(`${address}-${provider.name}`, currentBlockNumber);
+                }
+              }
+            }
           }
 
           // Update the previous balance with the new balance

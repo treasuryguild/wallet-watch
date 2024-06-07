@@ -1,4 +1,4 @@
-// updateTransactionTables.js
+// src/updateTransactionTables.js
 import { supabaseAnon } from '../lib/supabaseClient.js';
 
 async function getOrCreateTokens(tokens) {

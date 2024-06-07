@@ -1,8 +1,8 @@
 // src/server.js
 import http from 'http';
+import { WALLET_ADDRESSES, PROVIDERS, SUBSCAN_URLS, PORT } from './config/config.js';
 import { connectToProviders, getInitialBalances, subscribeToBalanceChanges } from './services/polkadotService.js';
 import { checkCardanoWallets } from './services/cardanoService.js';
-import { WALLET_ADDRESSES, PROVIDERS, SUBSCAN_URLS, PORT } from './config/config.js';
 
 function logInitialBalances(balances, addresses, providers) {
   balances.forEach((balances, walletIndex) => {
